@@ -1,0 +1,55 @@
+name: CI and CD Workflow
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 📥 Checkout code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 🐳 Login to Docker Hub
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # ⚡ Set up Docker Buildx (faster builds)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 🏗️ Build & Push Image (with caching)
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/fastapi-app:latest
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/fastapi-app:latest
+          cache-to: type=inline
+
+      # 🚀 Deploy to EC2
+      - name: Deploy to Server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ec2-user   # 🔥 IMPORTANT (not ubuntu for Amazon Linux)
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            docker pull ${{ secrets.DOCKER_USERNAME }}/fastapi-app:latest
+
+            docker stop fastapi-app || true
+            docker rm fastapi-app || true
+
+            docker run -d \
+              --name fastapi-app \
+              -p 8000:8000 \
+              --restart always \
+              ${{ secrets.DOCKER_USERNAME }}/fastapi-app:latest
